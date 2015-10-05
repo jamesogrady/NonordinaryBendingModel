@@ -2545,10 +2545,10 @@ def addUnique(target,source):
 #pr.enable()
 tBegin = time.time()
 name = "RingPinchCenter_n21_h3_1" 
-centroidfile = 'Ring_t001_n20.npz'
-positionfile = "./RingPinchCenter_n201_h3_3/RingPinchCenter_n201_h3_3_0_imp_2.npz"
-parameterfile = "./Ring_t001_n40_g01/Ring_t001_n40_g01_parameters.npz"
-pathname = "./"+name
+centroidfile = '../centroidfiles/Ring_t001_n20.npz'
+positionfile = "../results/RingPinchCenter_n201_h3_3/RingPinchCenter_n201_h3_3_0_imp_2.npz"
+parameterfile = "../results/Ring_t001_n40_g01/Ring_t001_n40_g01_parameters.npz"
+pathname = "../results/"+name
 make_sure_path_exists(pathname)
 namebase = pathname+"/"+name+"_" 
 loadParameters = False 
