@@ -56,7 +56,7 @@ class PlateProblem(
         NOX.Epetra.Interface.Required,
         NOX.Epetra.Interface.Jacobian
         ):
-    def __init__(self,dimensions,discretization,matl_properties,importname=None):
+    def __init__(self,dimensions,discretization,matl_properties,bendingproperties=None,importname=None):
         """Initializes entire problem"""
         NOX.Epetra.Interface.Required.__init__(self)
         NOX.Epetra.Interface.Jacobian.__init__(self)
@@ -77,6 +77,10 @@ class PlateProblem(
         [plate_length,plate_width,thickness,extension] = dimensions
         [nodesAcrossLength,nodesAcrossWidth,horizon] = discretization
         [shear_mod,bulk_mod,yieldstrain,mat_type] = matl_properties
+        if bendingproperties != None:
+            self.separatebending=True
+            self.bendingrigidity=bendingproperties[0]
+            self.gaussianstiffness=bendingproperties[1]
 
         self.plate_length = plate_length
         self.plate_width = plate_width
@@ -230,8 +234,12 @@ class PlateProblem(
             #plate bending stiffness
             area_moment = (thickness**3.0)/12.0
             #Bending Stiffness D = (2 G t^3)/[12(1-nu)] = (3 G t^3)/12
-            self.c = 2*shear_mod*area_moment/(1.0-nu0)
-            self.isoBendMod = 4*shear_mod*area_moment*(3.0*nu-1.0)/(1.0-nu)
+            if self.separatebending:
+                self.c=-1.5*self.gaussianstiffness
+                self.isoBendMod=6.0*self.gaussianstiffness+4.0*self.bendingrigidity
+            else:
+                self.c = 2*shear_mod*area_moment/(1.0-nu0)
+                self.isoBendMod = 4*shear_mod*area_moment*(3.0*nu-1.0)/(1.0-nu)
             if comm.MyPID()==0: print "isotropic bending modulus = ",str(self.isoBendMod)
             #extension stiffness 8Gt
             self.ext_modulus = 8.0*shear_mod*thickness
@@ -1543,7 +1551,7 @@ class PlateProblem(
 
             #-------------------------------------------------------------
 
-            if True: #Ring centered at x=0
+            if False: #Ring centered at x=0
                 x0edge = []
                 xLedge = []
                 y0edge = []
@@ -1590,7 +1598,7 @@ class PlateProblem(
 
             #-------------------------------------------------------------
 
-            if False: #SSSS uniformly loaded plate
+            if True: #SSSS uniformly loaded plate
                 x0edge = []
                 xLedge = []
                 y0edge = []
@@ -2039,22 +2047,22 @@ class PlateProblem(
             self.my_z_forceBCs.PutScalar(0.0)
 
 
-            #if len(self.my_forceNodes_local)>0:
-                #pressure = fraction*self.gamma*self.forcenorm/self.total_load_area
-                #for lid in self.my_forceNodes_local:
-                    #self.my_z_forceBCs[lid] = (pressure*self.my_area[lid])
-            #myforcetotal = self.my_z_forceBCs.sum()
-            #totalZforce = self.__comm.SumAll(myforcetotal)
-            #if self.rank == 0: print "Total Z force:",totalZforce
-
             if len(self.my_forceNodes_local)>0:
                 pressure = fraction*self.gamma*self.forcenorm/self.total_load_area
                 for lid in self.my_forceNodes_local:
-                    self.my_x_forceBCs[lid] = (pressure*self.my_area[lid])
-            if len(self.my_forceNodes2_local)>0:
-                pressure = -fraction*self.gamma*self.forcenorm/self.total_load_area
-                for lid in self.my_forceNodes2_local:
-                    self.my_x_forceBCs[lid] = (pressure*self.my_area[lid])
+                    self.my_z_forceBCs[lid] = (pressure*self.my_area[lid])
+            myforcetotal = self.my_z_forceBCs.sum()
+            totalZforce = self.__comm.SumAll(myforcetotal)
+            if self.rank == 0: print "Total Z force:",totalZforce
+
+            #if len(self.my_forceNodes_local)>0:
+                #pressure = fraction*self.gamma*self.forcenorm/self.total_load_area
+                #for lid in self.my_forceNodes_local:
+                    #self.my_x_forceBCs[lid] = (pressure*self.my_area[lid])
+            #if len(self.my_forceNodes2_local)>0:
+                #pressure = -fraction*self.gamma*self.forcenorm/self.total_load_area
+                #for lid in self.my_forceNodes2_local:
+                    #self.my_x_forceBCs[lid] = (pressure*self.my_area[lid])
         return True
 
     def getGraph(self):
@@ -2544,7 +2552,7 @@ def addUnique(target,source):
 #pr = cProfile.Profile()
 #pr.enable()
 tBegin = time.time()
-name = "RingPinchCenter_n21_h3_1" 
+name = "GrapheneSquare_n21_h3_1" 
 centroidfile = '../centroidfiles/Ring_t001_n20.npz'
 positionfile = "../results/RingPinchCenter_n201_h3_3/RingPinchCenter_n201_h3_3_0_imp_2.npz"
 parameterfile = "../results/Ring_t001_n40_g01/Ring_t001_n40_g01_parameters.npz"
@@ -2596,23 +2604,26 @@ if (loadParameters): # Load parameters from file
 else: # Set parameters and save
     parameterFileName = namebase+"parameters"
     #Plate dimensions 
-    plate_length = 1.0 
-    plate_width = .25
-    thickness = 0.001 
-    extension = 0.00
+    plate_length = 1.0E1 
+    plate_width = 1.0E1
+    thickness = 3.35E-1
+    extension = 1.0
     dimensions = [plate_length,plate_width,thickness,extension]
 
     #Plate material properties
-    shear_mod = 3.75E12
-    bulk_mod = 1.0E13
+    shear_mod = 4.374E-7
+    bulk_mod = 5.11E-7
     yieldstrain = 1.0E-3
     mat_type = "elastic"
     matl_properties = [shear_mod,bulk_mod,yieldstrain,mat_type]
+    bendingrigidity=2.31E-10
+    gaussianstiffness=2.43E-10
+    bendingproperties=[bendingrigidity,gaussianstiffness]
 
     #Discretization
     nodesAcrossLength = 21
-    nodesAcrossWidth =  6
-    horizonNorm = 3.1
+    nodesAcrossWidth =  21
+    horizonNorm = 3.001
     horizon = horizonNorm*plate_length/(nodesAcrossLength-1)
     #horizon = 0.01001
     discretization = [nodesAcrossLength,nodesAcrossWidth,horizon]
@@ -2650,10 +2661,10 @@ shortstep = 1
 #timestep = 1.0E-6
 #timestep = 1.0E-8
 timestep = 5.0E-7
-timestep = 1.0E-7
+timestep = 1.0E-10
 timestep = timestep
 damping = 500.0
-#damping = 5000.0
+damping = 5000.0
 #damping = 0.0
 maxbreak = 30
 simulation_time=0.0
@@ -2717,7 +2728,8 @@ if True:#(solvertype=='implicit'): #Set NOX parameters
             print nlParams
 
 
-problem = PlateProblem(dimensions,discretization,matl_properties,centroidfile)
+problem = PlateProblem(dimensions,discretization,matl_properties,bendingproperties)
+#problem = PlateProblem(dimensions,discretization,matl_properties,None,centroidfile)
 #problem = PlateProblem(dimensions,discretization,matl_properties)
 
 problem.gamma=gamma
@@ -2919,7 +2931,7 @@ else:
             -4*(np.pi-2*abeta)*np.sin(abeta)+np.pi*np.sin(2*abeta))-halfRingNorm
         uz_b[:] = -multiplier*(z0_b/np.absolute(z0_b))*(3*np.pi-4*(np.pi-2*abeta)*np.cos(abeta)
             + np.pi*np.cos(2*abeta)-8*np.sin(abeta))
-    if True:   
+    if False:   
         if comm.MyPID()==0:print "initial disp of pinched ring,",
         multiplier = -(init*gamma*(yieldstrain/thickness)
             *((plate_length/2.0)**3.0)*(1.0/8.0)/(np.pi*plate_width))
@@ -2936,7 +2948,7 @@ else:
         uz_b[:]= -multiplier*(z0_b/np.absolute(z0_b))*(3*np.pi-4*(np.pi-2*abeta)*np.cos(abeta)
             + np.pi*np.cos(2*abeta)-8*np.sin(abeta))
 
-    if False:#SSSS elastic plate uniform load initial guess
+    if True:#SSSS elastic plate uniform load initial guess
         if comm.MyPID()==0:print "initial disp SSSS plate, uniform load,\n"
         multiplier = 16.0*init*(gamma/(plate_length*plate_width))*(yieldstrain/thickness)/(np.pi**6.0)
         for m in range(1,8,2):
@@ -3048,8 +3060,10 @@ for loadstep,load in enumerate(loadlist):
             if comm.MyPID()==0:
                 print "Saving",filename # ," of ",numEsubsteps
                 print "time elapsed: ", time.time()-tBegin,"simulated:",simulation_time
-                maxU = ux_u[np.argmax(np.absolute(ux_u))]
-                print "largest ux:",maxU,"Total health",np.mean(nodeHealth_u)
+                #maxU = ux_u[np.argmax(np.absolute(ux_u))]
+                #print "largest ux:",maxU,"Total health",np.mean(nodeHealth_u)
+                maxU = uz_u[np.argmax(np.absolute(uz_u))]
+                print "largest uz:",maxU,"Total health",np.mean(nodeHealth_u)
                 #if np.absolute(norm)>0.0:
                     #print "Normalized to desired uz:",(maxU/norm)
                 np.savez(filename,
