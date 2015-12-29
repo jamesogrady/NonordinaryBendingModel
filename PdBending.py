@@ -268,15 +268,19 @@ class PlateProblem(
             #Create uniform rectangular grid
             j = np.complex(0,1)
             ext = self.extension
+            ext = self.plate_length/(self.nodesAcrossLength-1)
             grid = np.mgrid[
                 -ext:
                 self.plate_length+ext:
                 ((1.0+2.0*ext/self.plate_length)*(self.nodesAcrossLength-1)+1)*j,
-                -ext:
+                #-ext:
+                #self.plate_width+ext:
+                #((1.0+2.0*ext/self.plate_width)*(self.nodesAcrossWidth-1)+1)*j]
+                0:
                 self.plate_width+ext:
-                ((1.0+2.0*ext/self.plate_width)*(self.nodesAcrossWidth-1)+1)*j]
-            
+                ((self.nodesAcrossWidth-1)+1)*j]
             print "Grid has ",(len(grid[0])*len(grid[0][0]))," nodes"
+            
             #Create x,y tuple of node positions
             self.nodes = np.array(zip(
                 grid[0].ravel(),
@@ -1651,7 +1655,83 @@ class PlateProblem(
                 self.total_load_area = self.__comm.SumAll(self.my_load_area)
             #-------------------------------------------------------------
 
-            if True: #SSSS uniformly loaded plate
+            if True: #CFCF uniformly loaded plate arc
+                x0edge = []
+                xLedge = []
+                x0edge2 = []
+                xLedge2 = []
+                y0edge = []
+                yLedge = []
+                interior = []
+
+                for lid,position in enumerate(self.undeformed):
+                    xpos = position[0]
+                    ypos = position[1]
+                    
+                    if (xpos<-pinthickness):
+                        x0edge2=np.append(x0edge2,lid)
+                    if (pinthickness<(xpos-self.plate_length)):
+                        xLedge2=np.append(xLedge2,lid)
+
+                    if (-pinthickness<xpos<pinthickness and
+                        -pinthickness<ypos<(self.plate_width+pinthickness)):
+                        x0edge=np.append(x0edge,lid)
+                    if (-pinthickness<(xpos-self.plate_length)<pinthickness and
+                        -pinthickness<ypos<(self.plate_width+pinthickness)):
+                        xLedge=np.append(xLedge,lid)
+                    if (-pinthickness<xpos<(self.plate_length+pinthickness) and
+                        -pinthickness<ypos<pinthickness):
+                        y0edge=np.append(y0edge,lid)
+                    if (-pinthickness<(xpos)<(self.plate_length+pinthickness) and
+                        -pinthickness<(ypos-self.plate_width)<pinthickness):
+                        yLedge=np.append(yLedge,lid)
+                    if (pinthickness<(xpos)<(self.plate_length-pinthickness)):
+                        interior=np.append(interior,lid)
+
+
+                numx0=self.__comm.SumAll(len(x0edge))
+                numy0=self.__comm.SumAll(len(y0edge))
+                numxL=self.__comm.SumAll(len(xLedge))
+                numyL=self.__comm.SumAll(len(yLedge))
+                numInt=self.__comm.SumAll(len(interior))
+                if self.rank==0:
+                    print numx0,"x0,",
+                    print numy0,"y0,",
+                    print numxL,"xL,",
+                    print numyL,"yL,",
+                    print numInt,"interior nodes"
+
+                self.my_fixed_X_local = np.asarray(np.unique(
+                    np.concatenate((x0edge,xLedge,x0edge2,xLedge2))),dtype=np.intc)
+                self.my_fixedNodes_local= np.asarray(xLedge,dtype=np.intc)
+                self.my_fixed_Y_local = np.asarray(np.intersect1d(np.asarray(y0edge),np.asarray(self.my_fixed_X_local)),dtype=np.intc)
+                self.my_fixed_Z_local = np.asarray(np.unique(
+                    np.concatenate((x0edge,xLedge))),dtype=np.intc)
+                self.my_forceNodes_local = np.asarray(interior,dtype=np.intc)
+                self.my_forceNodes2_local = []
+
+                if len(xLedge)>0:
+                    for lid in xLedge:
+                        self.my_fixedBC[lid,0]=self.plate_length-1.25
+                        #self.my_fixedBC[lid,0]=self.plate_length
+                if len(xLedge2)>0:
+                    for lid in xLedge2:
+                        self.my_fixedBC[lid,0]=self.plate_length-1.25
+                        #self.my_fixedBC[lid,0]=self.plate_length
+                if len(x0edge)>0:
+                    for lid in x0edge:
+                        self.my_fixedBC[lid,0]=0.0
+                if len(x0edge2)>0:
+                    for lid in x0edge2:
+                        self.my_fixedBC[lid,0]=0.0
+
+
+                my_num_forcenodes = len(self.my_forceNodes_local)
+                self.total_forcenodes=self.__comm.SumAll(my_num_forcenodes)
+                self.my_load_area = (self.my_area[np.asarray(interior,dtype=int)]).sum()
+                self.total_load_area = self.__comm.SumAll(self.my_load_area)
+            #-------------------------------------------------------------
+            if False: #SSSS uniformly loaded plate
                 x0edge = []
                 xLedge = []
                 y0edge = []
@@ -2605,16 +2685,17 @@ def addUnique(target,source):
 #pr = cProfile.Profile()
 #pr.enable()
 tBegin = time.time()
-name = "GrapheneSquare_n41_h2_noext_1" 
+name = "GrapheneArc2_edge_n501_h2_4" 
 centroidfile = '../centroidfiles/Ring_t001_n20.npz'
-positionfile = "../results/GrapheneSquare_n41_h3_noext_4/GrapheneSquare_n41_h3_noext_4_1_exp_25.npz"
+positionfile = "../results/GrapheneArc2_edge_n501_h2_3/GrapheneArc2_edge_n501_h2_3_1_exp_5.npz"
 parameterfile = "../results/Ring_t001_n40_g01/Ring_t001_n40_g01_parameters.npz"
 pathname = "../results/"+name
 make_sure_path_exists(pathname)
 namebase = pathname+"/"+name+"_" 
 loadParameters = False 
 loadPositions = False 
-loadPositions = True
+#loadPositions = True
+loadvelocity=True
 plotting = False
 
 if (loadParameters): # Load parameters from file
@@ -2657,8 +2738,8 @@ if (loadParameters): # Load parameters from file
 else: # Set parameters and save
     parameterFileName = namebase+"parameters"
     #Plate dimensions 
-    plate_length = 1.0E1 
-    plate_width = 1.0E1
+    plate_length = 2.0E3 
+    plate_width = 1.0E3
     thickness = 3.35E-1
     extension = 0.0
     dimensions = [plate_length,plate_width,thickness,extension]
@@ -2676,8 +2757,8 @@ else: # Set parameters and save
     bendingproperties=[bendingrigidity,gaussianstiffness]
 
     #Discretization
-    nodesAcrossLength = 41
-    nodesAcrossWidth =  41
+    nodesAcrossLength = 501
+    nodesAcrossWidth =  251
     horizonNorm = 2.001
     horizon = horizonNorm*plate_length/(nodesAcrossLength-1)
     #horizon = 0.01001
@@ -2704,28 +2785,34 @@ startingstep = 1
 loadlist = [1.0]
 tensionmultiplier = 4.05*(3.0*bulk_mod+4.0*shear_mod)/(6.0*bulk_mod+2.0*shear_mod)
 numLoadsteps = len(loadlist)
-numIsubsteps = 3
+numIsubsteps = 5
 numEsubsteps = 3
 longstep = 1
 medstep = 500
 medstep = 500000
-#medstep = 2000
-#medstep = 5000
+medstep = 2000
+medstep = 50000
 num_medsteps = 500
 num_medsteps = 25
+#num_medsteps = 10
 shortstep = 1
-#timestep = 1.0E-6
-timestep = 1.0E-8
-timestep = 1.0E-9
+timestep = 5.0E-7
+timestep = 2.0E-7
+#timestep = 2.0E-6
+#timestep = 5.0E-9
 timestep = timestep
 damping = 1.0E2
-damping = 1.0E3
+#damping = 5.0E2
+damping = 3.0E1
+#damping = 5.0E4
+#damping = 1.0E5
 #damping = 0.0
 maxbreak = 30
 simulation_time=0.0
 
 #applied load parameters
-gamma = 1.0
+gamma = -1.0E5
+gamma = 0.0
 gamma2 = 0.0
 loadDisplacement = -0.01
 load_velocity = 0.01
@@ -2859,7 +2946,6 @@ init = 1.0
 if (loadPositions): #Load previous result file
 
     loadhealth=False
-    loadvelocity=True
     pairhealthunbalanced=[]
     if comm.MyPID()==0:
         scale = 1.0
@@ -3002,7 +3088,7 @@ else:
         uz_b[:]= -multiplier*(z0_b/np.absolute(z0_b))*(3*np.pi-4*(np.pi-2*abeta)*np.cos(abeta)
             + np.pi*np.cos(2*abeta)-8*np.sin(abeta))
 
-    if True:#SSSS elastic plate uniform load initial guess
+    if False:#SSSS elastic plate uniform load initial guess
         scale=1.0E1
         if comm.MyPID()==0:print "initial disp SSSS plate, uniform load,",
         if comm.MyPID()==0:print "scale by",scale
@@ -3017,6 +3103,10 @@ else:
         uz_b[:] = uz_b[:]*multiplier*scale
         uz_b[:] = uz_b[:]*(9.0*bulk_mod+12.0*shear_mod)/(12.0*bulk_mod+4.0*shear_mod)
 
+    if True:#SFSF elastic plate arc
+        if comm.MyPID()==0:print "initial disp SFSF plate, arc"
+        ux_b[:] = -1.25*(x0_b/2000)
+        uz_b[:] = (20012.5*(np.cos((1000-x0_b)/20012.5))-19987.5)  
     if False:#Plate with 4 point bend
         if comm.MyPID()==0:print "initial disp SS plate, 4pt load,\n"
         #if comm.MyPID()==0:print "cut center crack"
@@ -3140,7 +3230,7 @@ for loadstep,load in enumerate(loadlist):
                     plt.savefig(filename)
                     plt.close(fig)
 
-    #solvertype = "implicit"
+    solvertype = "implicit"
     if (solvertype == "implicit"):
         noxInitGuess = NOX.Epetra.Vector(initGuess,NOX.Epetra.Vector.CreateView)
         fdc  = NOX.Epetra.FiniteDifferenceColoring(printParams, problem,
